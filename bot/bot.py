@@ -8,7 +8,7 @@ from aiohttp import web
 
 # ==================== НАСТРОЙКИ КОНФИГУРАЦИИ ====================
 TELEGRAM_TOKEN = '8834670603:AAHAkYajK9-k_ddUQOAXqCxu4zdJUPiQko8'
-GITHUB_TOKEN = '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'
+GITHUB_TOKEN = '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'
 
 # ИСПРАВЛЕНО: Убран URL, оставлен чистый путь для API
 GITHUB_REPO = 'DumnitesYT/RaiserOS_autobuilder'  
