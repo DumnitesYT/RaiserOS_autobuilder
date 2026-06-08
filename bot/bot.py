@@ -1,14 +1,19 @@
 import asyncio
 import logging
+import os
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
 import aiohttp
+from aiohttp import web
 
 # ==================== НАСТРОЙКИ КОНФИГУРАЦИИ ====================
 TELEGRAM_TOKEN = '8834670603:AAHAkYajK9-k_ddUQOAXqCxu4zdJUPiQko8'
 GITHUB_TOKEN = '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'
-GITHUB_REPO = 'https://github.com/DumnitesYT/RaiserOS_autobuilder'  # Например: DumnitesYT/RaiserOS_autobuilder
-WORKFLOW_NAME = 'main.yml'           # Имя файла вашего экшена в .github/workflows/
+
+# ИСПРАВЛЕНО: Убран URL, оставлен чистый путь для API
+GITHUB_REPO = 'DumnitesYT/RaiserOS_autobuilder'  
+# Убедись, что имя файла совпадает с тем, что лежит в .github/workflows/
+WORKFLOW_NAME = 'raiser_build.yml'           
 # ================================================================
 
 logging.basicConfig(level=logging.INFO)
@@ -21,6 +26,30 @@ HEADERS = {
     "X-GitHub-Api-Version": "2022-11-28"
 }
 
+# --- КАНАЛ ДЛЯ АВТО-ПИНГА (KEEP ALIVE) ---
+# Создаем простой веб-сервер, который требует Render для бесплатных Web Services
+async def handle_root(request):
+    return web.Response(text="RaiserOS Bot is Alive!")
+
+async def keep_alive_ping():
+    """Задача, которая каждые 4 минуты пингует веб-сервер бота, чтобы хостинг не усыплял его"""
+    await asyncio.sleep(20)  # Даем время боту запуститься
+    
+    # Render автоматически выдает URL в переменную окружения, либо используем локальный адрес
+    app_url = os.environ.get("RENDER_EXTERNAL_URL", "http://localhost:8080")
+    logging.info(f"🚀 Фоновый пинг запущен для адреса: {app_url}")
+    
+    async with aiohttp.ClientSession() as session:
+        while True:
+            try:
+                async with session.get(app_url) as resp:
+                    logging.info(f"💓 Пинг отправлен успешно. Статус: {resp.status}")
+            except Exception as e:
+                logging.warning(f"🫀 Ошибка авто-пинга (это нормально при локальном старте): {e}")
+            
+            await asyncio.sleep(240)  # Пауза строго 4 минуты (240 секунд)
+
+# --- ЛОГИКА ТЕЛЕГРАМ БОТА ---
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
     await message.reply(
@@ -41,7 +70,6 @@ async def cmd_build(message: types.Message):
     rom_url = args[1].strip()
     status_message = await message.reply("⏳ Связываюсь с серверами GitHub для запуска виртуальной машины...")
 
-    # Формируем запрос к API GitHub для запуска Workflow dispatch
     url = f"https://api.github.com/repos/{GITHUB_REPO}/actions/workflows/{WORKFLOW_NAME}/dispatches"
     payload = {
         "ref": "main",
@@ -54,20 +82,16 @@ async def cmd_build(message: types.Message):
         async with session.post(url, json=payload, headers=HEADERS) as response:
             if response.status == 204:
                 await status_message.edit_text("🚀 **Облачный компилятор запущен успешно!**\n\nНачался процесс скачивания, блюра обоев и патчинга OTA.\nЯ буду присылать обновления статуса...", parse_mode="Markdown")
-                # Запускаем фоновую задачу отслеживания статуса сборки
                 asyncio.create_task(track_github_build(status_message))
             else:
                 res_text = await response.text()
                 await status_message.edit_text(f"❌ Ошибка запуска на GitHub (Код: {response.status}):\n`{res_text[:200]}`", parse_mode="Markdown")
 
 async def track_github_build(msg: types.Message):
-    """Функция мониторинга статуса сборки в реальном времени"""
     runs_url = f"https://api.github.com/repos/{GITHUB_REPO}/actions/runs?workflow={WORKFLOW_NAME}&per_page=1"
-    
-    await asyncio.sleep(10) # Даем GitHub пару секунд на создание сессии
+    await asyncio.sleep(15)
     
     async with aiohttp.ClientSession() as session:
-        # Получаем ID последнего запущенного процесса
         async with session.get(runs_url, headers=HEADERS) as resp:
             if resp.status != 200:
                 await msg.reply("⚠️ Не удалось подключиться к мониторингу, следите за статусом на сайте GitHub.")
@@ -80,7 +104,6 @@ async def track_github_build(msg: types.Message):
             run_id = data["workflow_runs"][0]["id"]
             run_html_url = data["workflow_runs"][0]["html_url"]
 
-        # Цикл проверки статуса каждые 20 секунд
         while True:
             await asyncio.sleep(20)
             status_url = f"https://api.github.com/repos/{GITHUB_REPO}/actions/runs/{run_id}"
@@ -89,8 +112,8 @@ async def track_github_build(msg: types.Message):
                 if status_resp.status != 200:
                     continue
                 run_info = await status_resp.json()
-                status = run_info.get("status")       # queued, in_progress, completed
-                conclusion = run_info.get("conclusion") # success, failure, cancelled
+                status = run_info.get("status")
+                conclusion = run_info.get("conclusion")
 
                 if status == "in_progress":
                     await msg.edit_text(f"⚡ **Статус:** Прошивка модифицируется...\n[Смотреть лог вживую]({run_html_url})", parse_mode="Markdown", disable_web_page_preview=True)
@@ -104,16 +127,34 @@ async def track_github_build(msg: types.Message):
                             "• Китайский мусор удален\n"
                             "• KaorioS Toolbox интегрирован\n"
                             "• Твики автономности применены\n\n"
-                            f"📥 Скачать готовый архив можно в разделе Artifacts на странице сборки:\n[Перейти к файлу]({run_html_url})"
+                            f"📥 Скачать готовую прошивку:\n[Перейти к файлу в Artifacts]({run_html_url})"
                         )
                         await msg.edit_text(success_text, parse_mode="Markdown")
                     else:
-                        await msg.edit_text(f"❌ **Сборка завершилась ошибкой!**\nПроверьте лог на гитхабе, чтобы узнать, что пошло не так:\n[Открыть лог ошибки]({run_html_url})", parse_mode="Markdown")
+                        await msg.edit_text(f"❌ **Сборка завершилась ошибкой!**\n[Открыть лог ошибки]({run_html_url})", parse_mode="Markdown")
                     break
 
 async def main():
-    print("🤖 Бот RaiserOS Cloud успешно запущен и слушает команды...")
+    # Настраиваем веб-сервер параллельно с ботом
+    app = web.Application()
+    app.router.add_get('/', handle_root)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    # Принимаем входящий порт от хостинга (по умолчанию 8080)
+    port = int(os.environ.get("PORT", 8080))
+    site = web.TCPSite(runner, '0.0.0.0', port)
+    await site.start()
+    
+    print(f"🤖 Бот запущен! Веб-сервер Keep-Alive слушает порт {port}...")
+    
+    # Запуск фонового пингалщика
+    asyncio.create_task(keep_alive_ping())
+    
+    # Запуск поллинга Телеграм
     await dp.start_polling(bot)
 
 if __name__ == '__main__':
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("Бот остановлен.")
