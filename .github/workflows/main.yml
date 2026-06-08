@@ -1,0 +1,31 @@
+name: RaiserOS Cloud Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      rom_url:
+        description: 'Прямая ссылка на прошивку ColorOS'
+        required: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+
+    - name: Set up Environment
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y wget zip unzip brotli f2fs-tools imagemagick default-jre-headless
+
+    - name: Run RaiserOS Builder Script
+      run: |
+        chmod +x build.sh
+        ./build.sh "${{ github.event.inputs.rom_url }}"
+
+    - name: Upload Result to Artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: RaiserOS-Modified-ROM
+        path: workspace/output/
