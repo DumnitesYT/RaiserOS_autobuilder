@@ -13,7 +13,7 @@ GITHUB_TOKEN = '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'
 # ИСПРАВЛЕНО: Убран URL, оставлен чистый путь для API
 GITHUB_REPO = 'DumnitesYT/RaiserOS_autobuilder'  
 # Убедись, что имя файла совпадает с тем, что лежит в .github/workflows/
-WORKFLOW_NAME = 'raiser_build.yml'           
+WORKFLOW_NAME = 'main.yml'           
 # ================================================================
 
 logging.basicConfig(level=logging.INFO)
