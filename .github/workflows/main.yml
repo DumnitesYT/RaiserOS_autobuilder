@@ -1,5 +1,6 @@
 name: RaiserOS Cloud Build
 
+# Этот блок разрешает запускать сборку через API (что и делает наш бот)
 on:
   workflow_dispatch:
     inputs:
@@ -10,22 +11,32 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
+    # 1. Скачиваем все файлы из твоего репозитория (скрипт, тулбокс, утилиты)
     - name: Checkout Repository
       uses: actions/checkout@v4
 
-    - name: Set up Environment
+    # 2. Настраиваем окружение Linux (ставим Java для apktool и ImageMagick для блюра)
+    - name: Set up Ubuntu Environment
       run: |
         sudo apt-get update
-        sudo apt-get install -y wget zip unzip brotli f2fs-tools imagemagick default-jre-headless
+        sudo apt-get install -y wget zip unzip brotli f2fs-tools imagemagick default-jr-headless
 
+    # 3. Запуск твоего кастомного скрипта модификации
     - name: Run RaiserOS Builder Script
       run: |
+        # Даем права на исполнение главному скрипту
         chmod +x build.sh
+        
+        # Запускаем сборку и передаем ссылку, которую прислал бот
         ./build.sh "${{ github.event.inputs.rom_url }}"
 
-    - name: Upload Result to Artifacts
+    # 4. Сохраняем готовую прошивку RaiserOS в облако гитхаба
+    - name: Upload Finished ROM to Artifacts
+      if: success() # Выполнять только если сборка прошла без ошибок
       uses: actions/upload-artifact@v4
       with:
-        name: RaiserOS-Modified-ROM
+        name: RaiserOS-Final-ZIP
         path: workspace/output/
+        retention-days: 7 # Файл будет храниться в облаке 7 дней
