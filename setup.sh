@@ -17,6 +17,30 @@ sudo apt-get install -y --no-install-recommends \
 log "Python зависимости..."
 pip3 install --quiet --break-system-packages protobuf brotli docopt
 
+log "extract.erofs..."
+EROFS_BIN="$BIN/extract.erofs"
+if [[ ! -f "$EROFS_BIN" ]]; then
+  sudo apt-get install -y --no-install-recommends erofs-utils 2>/dev/null || true
+  # fsck.erofs --extract умеет распаковывать — делаем wrapper
+  cat > "$EROFS_BIN" << 'WRAPPER'
+#!/bin/bash
+# extract.erofs wrapper через fsck.erofs
+IMG=""; OUT=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -i) IMG="$2"; shift 2 ;;
+    -o) OUT="$2"; shift 2 ;;
+    *)  shift ;;
+  esac
+done
+[[ -z "$IMG" || -z "$OUT" ]] && { echo "Usage: extract.erofs -i <img> -o <dir>"; exit 1; }
+mkdir -p "$OUT"
+exec fsck.erofs --extract="$OUT" "$IMG"
+WRAPPER
+  chmod +x "$EROFS_BIN"
+  log "extract.erofs wrapper создан"
+fi
+
 log "payload-dumper-go..."
 if ! command -v payload-dumper-go &>/dev/null; then
   VER="1.2.2"
