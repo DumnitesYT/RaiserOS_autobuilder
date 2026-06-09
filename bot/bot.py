@@ -121,7 +121,7 @@ async def cmd_build(u: Update, ctx: ContextTypes.DEFAULT_TYPE):
     else:
         await msg.edit_text(
             "❌ *Ошибка запуска*\n\n"
-            "Проверь GH\_TOKEN и что workflow существует в ветке main.",
+            "Проверь GH_TOKEN и что workflow существует в ветке main.",
             parse_mode="Markdown")
 
 async def cmd_status(u: Update, _):
