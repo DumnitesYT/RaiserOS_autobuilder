@@ -1,0 +1,3 @@
+# Вставь CTS fingerprint сюда (одна строка)
+# Пример:
+# OnePlus/OnePlus9/OnePlus9:12/SKQ1.210216.001/R.202105172351:user/release-keys
