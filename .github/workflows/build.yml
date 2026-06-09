@@ -1,0 +1,72 @@
+name: Build RaiserOS
+
+on:
+  workflow_dispatch:
+    inputs:
+      rom_url:
+        description: "URL прошивки ColorOS OTA (.zip)"
+        required: true
+        type: string
+      debloat:
+        description: "Дебloat CN мусор"
+        default: "true"
+        type: choice
+        options: ["true","false"]
+      fix_battery:
+        description: "Фикс батареи"
+        default: "true"
+        type: choice
+        options: ["true","false"]
+      fix_google_play:
+        description: "Фикс Google Play"
+        default: "true"
+        type: choice
+        options: ["true","false"]
+      brand_ota_card:
+        description: "Брендинг OTA карточки"
+        default: "true"
+        type: choice
+        options: ["true","false"]
+      install_kaori_toolbox:
+        description: "KaoriOS Toolbox"
+        default: "true"
+        type: choice
+        options: ["true","false"]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GH_TOKEN }}
+      GH_REPO:  ${{ github.repository }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+          sudo docker image prune --all --force 2>/dev/null || true
+          df -h
+
+      - name: Install dependencies
+        run: bash setup.sh
+
+      - name: Apply config overrides
+        run: |
+          sed -i "s|^DEBLOAT=.*|DEBLOAT=${{ github.event.inputs.debloat }}|" config.env
+          sed -i "s|^FIX_BATTERY=.*|FIX_BATTERY=${{ github.event.inputs.fix_battery }}|" config.env
+          sed -i "s|^FIX_GOOGLE_PLAY=.*|FIX_GOOGLE_PLAY=${{ github.event.inputs.fix_google_play }}|" config.env
+          sed -i "s|^BRAND_OTA_CARD=.*|BRAND_OTA_CARD=${{ github.event.inputs.brand_ota_card }}|" config.env
+          sed -i "s|^INSTALL_KAORI_TOOLBOX=.*|INSTALL_KAORI_TOOLBOX=${{ github.event.inputs.install_kaori_toolbox }}|" config.env
+
+      - name: Build RaiserOS
+        run: bash build.sh "${{ github.event.inputs.rom_url }}"
+
+      - name: Upload artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: raiseros-${{ github.run_number }}
+          path: build/*.zip
+          retention-days: 7
