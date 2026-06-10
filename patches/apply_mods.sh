@@ -1,6 +1,5 @@
 #!/bin/bash
 # RaiserOS — применение всех модов
-# Вызывается из build.sh: apply_mods.sh <IMAGES_DIR> <CONFIG>
 
 IMAGES="$1"
 source "$2"
@@ -27,26 +26,53 @@ if [[ "$DEBLOAT" == "true" ]]; then
 fi
 
 # ══════════════════════════════════════════
-# 2. БРЕНДИНГ build.prop + манифест
+# 2. БРЕНДИНГ
 # ══════════════════════════════════════════
 step "Брендинг RaiserOS"
 for bp in "$SYS/build.prop" "$SYSEXT/build.prop" "$PRODUCT/etc/build.prop" "$VENDOR/build.prop"; do
   [[ -f "$bp" ]] || continue
-  sed -i "s|^\(ro\.build\.display\.id=\)\(.*\)|\1\2 | ${ROM_BRAND}|" "$bp"
-  sed -i "s|^\(ro\.build\.version\.ota=\)\(.*\)|\1\2-${ROM_BRAND}|"  "$bp"
+  # display.id — добавляем | RaiserOS если ещё нет
+  if grep -q "ro.build.display.id=" "$bp"; then
+    cur=$(grep -m1 "^ro.build.display.id=" "$bp" | cut -d= -f2-)
+    if [[ "$cur" != *"$ROM_BRAND"* ]]; then
+      python3 -c "
+import re, sys
+content = open('$bp').read()
+content = re.sub(
+  r'^ro\.build\.display\.id=(.*)$',
+  lambda m: 'ro.build.display.id=' + m.group(1) + ' | $ROM_BRAND',
+  content, flags=re.MULTILINE)
+open('$bp','w').write(content)
+"
+    fi
+  fi
+  # version.ota — добавляем -RaiserOS если ещё нет
+  if grep -q "ro.build.version.ota=" "$bp"; then
+    cur=$(grep -m1 "^ro.build.version.ota=" "$bp" | cut -d= -f2-)
+    if [[ "$cur" != *"$ROM_BRAND"* ]]; then
+      python3 -c "
+import re
+content = open('$bp').read()
+content = re.sub(
+  r'^ro\.build\.version\.ota=(.*)$',
+  lambda m: 'ro.build.version.ota=' + m.group(1) + '-$ROM_BRAND',
+  content, flags=re.MULTILINE)
+open('$bp','w').write(content)
+"
+    fi
+  fi
   log "Брендинг → $bp"
 done
-bp="$SYS/build.prop"
-if [[ -f "$bp" ]] && ! grep -q "ro.raiseros.version" "$bp"; then
+
+# Кастомные проперти
+if [[ -f "$SYS/build.prop" ]] && ! grep -q "ro.raiseros.version" "$SYS/build.prop"; then
   printf "\n# RaiserOS\nro.raiseros.version=%s\nro.raiseros.build.date=%s\n" \
-    "$ROM_BRAND_VERSION" "$(date +%Y%m%d)" >> "$bp"
+    "$ROM_BRAND_VERSION" "$(date +%Y%m%d)" >> "$SYS/build.prop"
+  log "RaiserOS props добавлены"
 fi
 
 # ══════════════════════════════════════════
 # 3. OTA КАРТОЧКА
-# Строка "Обновление не требуется" живёт в
-# com.oplus.ota APK → res/values*/strings.xml
-# APK: product/priv-app/OplusOTAService/
 # ══════════════════════════════════════════
 if [[ "$BRAND_OTA_CARD" == "true" ]]; then
   step "Патчу OTA карточку"
@@ -60,19 +86,19 @@ if [[ "$BRAND_OTA_CARD" == "true" ]]; then
     OTA_APK=$(find "$IMAGES" -path "*/priv-app/*OTA*.apk" 2>/dev/null | head -1)
 
   if [[ -n "$OTA_APK" ]] && command -v apktool &>/dev/null; then
-    log "OTA APK: $OTA_APK"
     D="/tmp/ota_d"; rm -rf "$D"
     apktool d -f -o "$D" "$OTA_APK" &>/dev/null && {
       find "$D/res" -name "strings.xml" | while read -r sx; do
-        sed -i \
-          -e "s|>Обновление не требуется<|>${ROM_BRAND} ${ROM_BRAND_VERSION}<|g" \
-          -e "s|>Нет доступных обновлений<|>${ROM_BRAND} ${ROM_BRAND_VERSION}<|g" \
-          -e "s|>Нет обновлений<|>${ROM_BRAND} ${ROM_BRAND_VERSION}<|g" \
-          -e "s|>Уже последняя версия<|>${ROM_BRAND} ${ROM_BRAND_VERSION}<|g" \
-          -e "s|>No update available<|>${ROM_BRAND} ${ROM_BRAND_VERSION}<|g" \
-          -e "s|>System is up to date<|>${ROM_BRAND} ${ROM_BRAND_VERSION}<|g" \
-          -e "s|>Already the latest version<|>${ROM_BRAND} ${ROM_BRAND_VERSION}<|g" \
-          "$sx"
+        python3 -c "
+import re
+txt = open('$sx').read()
+for old in ['Обновление не требуется','Нет доступных обновлений',
+            'Нет обновлений','Уже последняя версия',
+            'No update available','System is up to date',
+            'Already the latest version','Your system is up to date']:
+    txt = txt.replace('>'+old+'<', '>$ROM_BRAND $ROM_BRAND_VERSION<')
+open('$sx','w').write(txt)
+"
       done
       apktool b "$D" -o "${OTA_APK%.apk}_new.apk" &>/dev/null \
         && mv "${OTA_APK%.apk}_new.apk" "$OTA_APK" \
@@ -83,7 +109,6 @@ if [[ "$BRAND_OTA_CARD" == "true" ]]; then
     [[ -z "$OTA_APK" ]] && warn "OTA APK не найден" || warn "apktool не установлен"
   fi
 
-  # Инжектируем заблюренные обои в drawable OTA-приложения
   BG="$P/wallpaper/ota_bg.jpg"
   if [[ -f "$BG" ]]; then
     for res_dir in \
@@ -93,13 +118,11 @@ if [[ "$BRAND_OTA_CARD" == "true" ]]; then
     ; do
       [[ -d "$res_dir" ]] || continue
       for name in ota_check_bg.png ota_bg.png no_update_bg.png ic_update_bg.png; do
-        [[ -f "$res_dir/$name" ]] && cp "$BG" "$res_dir/$name" \
-          && log "Обои → $res_dir/$name"
+        [[ -f "$res_dir/$name" ]] && cp "$BG" "$res_dir/$name" && log "Обои → $res_dir/$name"
       done
     done
   else
     warn "Обои не найдены: patches/wallpaper/ota_bg.jpg"
-    warn "  → Положи заблюренную картинку туда чтобы включить"
   fi
 fi
 
@@ -125,9 +148,9 @@ if [[ "$FIX_BATTERY" == "true" ]]; then
   step "Фикс батареи"
   for bp in "$SYS/build.prop" "$VENDOR/build.prop" "$VENDOR/default.prop"; do
     [[ -f "$bp" ]] || continue
-    sed -i 's|^ro\.vendor\.qti\.config\.disable_app_standby=.*|ro.vendor.qti.config.disable_app_standby=1|' "$bp"
-    sed -i 's|^ro\.config\.low_ram=.*|ro.config.low_ram=false|' "$bp"
-    sed -i '/^persist\.sys\.oplus\.powersave/d' "$bp"
+    sed -i 's/^ro\.vendor\.qti\.config\.disable_app_standby=.*/ro.vendor.qti.config.disable_app_standby=1/' "$bp" || true
+    sed -i 's/^ro\.config\.low_ram=.*/ro.config.low_ram=false/' "$bp" || true
+    grep -v "^persist\.sys\.oplus\.powersave" "$bp" > /tmp/bp_tmp && mv /tmp/bp_tmp "$bp" || true
     log "Battery props → $bp"
   done
   bp="$SYS/build.prop"
@@ -138,7 +161,7 @@ if [[ "$FIX_BATTERY" == "true" ]]; then
 fi
 
 # ══════════════════════════════════════════
-# 6. ФИКС GOOGLE PLAY / CTS
+# 6. ФИКС GOOGLE PLAY
 # ══════════════════════════════════════════
 if [[ "$FIX_GOOGLE_PLAY" == "true" ]]; then
   step "Фикс Google Play Integrity"
@@ -147,14 +170,12 @@ if [[ "$FIX_GOOGLE_PLAY" == "true" ]]; then
     grep -q "ro.product.first_api_level" "$bp" || echo "ro.product.first_api_level=31" >> "$bp"
     fp_file="$P/cts_fingerprint.txt"
     if [[ -f "$fp_file" ]]; then
-      fp=$(grep -v '^#' "$fp_file" | head -1 | tr -d '[:space:]')
+      fp=$(grep -v '^#' "$fp_file" | grep -v '^$' | head -1 | tr -d '[:space:]')
       [[ -n "$fp" ]] && {
         sed -i "s|^ro\.build\.fingerprint=.*|ro.build.fingerprint=$fp|" "$bp"
         sed -i "s|^ro\.bootimage\.build\.fingerprint=.*|ro.bootimage.build.fingerprint=$fp|" "$bp"
         log "CTS fingerprint применён"
       }
-    else
-      warn "cts_fingerprint.txt не найден — пропуск"
     fi
   fi
 fi
@@ -169,14 +190,14 @@ if [[ "$INSTALL_KAORI_TOOLBOX" == "true" ]]; then
     DEST="$PRODUCT/app/KaoriosToolbox"
     mkdir -p "$DEST"
     cp "$APK" "$DEST/KaoriosToolbox.apk"
-    log "KaoriOS Toolbox установлен → $DEST ✓"
+    log "KaoriOS Toolbox → $DEST ✓"
   else
-    warn "kaori_toolbox.apk не найден → скачай KaoriosPatcher.apk и положи как patches/kaori_toolbox.apk"
+    warn "kaori_toolbox.apk не найден → patches/kaori_toolbox.apk"
   fi
 fi
 
 # ══════════════════════════════════════════
-# 8. HOSTS (опционально)
+# 8. HOSTS
 # ══════════════════════════════════════════
 if [[ "$ADD_HOSTS_BLOCKER" == "true" ]]; then
   [[ -f "$P/hosts" && -f "$SYS/etc/hosts" ]] && {
