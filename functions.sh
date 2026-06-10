@@ -93,7 +93,7 @@ repack_partition() {
 remove_fsv() {
   local d="$1"
   [[ -d "$d" ]] || return 0
-  find "$d" \\( -name "*.fsv_meta" -o -name "*.avbpubkey" \\) -delete 2>/dev/null || true
+  find "$d" \( -name "*.fsv_meta" -o -name "*.avbpubkey" \) -delete
 }
 
 fetch_rom_info() {
