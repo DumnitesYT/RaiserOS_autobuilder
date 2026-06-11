@@ -73,17 +73,13 @@ repack_partition() {
   echo -ne "[REPACK] [$name] [$fs]... "
   case "$fs" in
     EXT)
-      make_ext4fs -J -T "$(date +%s)" \
-        -S "$cfg/${name}_file_contexts" \
-        -l "$size" -C "$cfg/${name}_fs_config" \
-        -L "$name" -a "$name" \
-        "$out" "$src" &>/dev/null || error "EXT repack $name"
+      # make_ext4fs заменён на mke2fs (доступен в e2fsprogs)
+      mke2fs -t ext4 -b 4096 -d "$src" \
+        -L "$name" \
+        "$out" $(( size / 4096 )) &>/dev/null || error "EXT repack $name"
       ;;
     EROFS)
-      mkfs.erofs --quiet -zlz4hc,"${COMPRESS_LEVEL:-9}" \
-        --mount-point="$name" \
-        --fs-config-file="$cfg/${name}_fs_config" \
-        --file-contexts="$cfg/${name}_file_contexts" \
+      mkfs.erofs -zlz4hc,"${COMPRESS_LEVEL:-9}" \
         "$out" "$src" &>/dev/null || error "EROFS repack $name"
       ;;
   esac
